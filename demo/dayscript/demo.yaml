@@ -1,0 +1,10 @@
+flow:
+  - wait_for: { id: title }
+  - assert_text: { id: title, key: app_title }
+  - tap: { id: in_process_schedule, skip_on: [web-dom, harmony-arkui] }
+  - assert_text: { id: status, key: in_process_scheduled, skip_on: [web-dom, harmony-arkui] }
+  - tap: { id: in_process_cancel, skip_on: [web-dom, harmony-arkui] }
+  - assert_text: { id: status, key: cancelled, skip_on: [web-dom, harmony-arkui] }
+  - tap: { id: run_now, skip_on: [web-dom] }
+  - assert_text: { id: status, key: completed, skip_on: [web-dom] }
+  - screenshot: background

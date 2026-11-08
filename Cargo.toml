@@ -1,0 +1,35 @@
+[package]
+name = "day-part-background"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MPL-2.0"
+repository = "https://github.com/daybrite/day-part-background"
+description = "Native background services for Day apps"
+include = ["/src/**", "/platform/**", "/build.rs", "/Cargo.toml", "/README.md", "/docs/**", "/LICENSE"]
+
+[package.metadata.day]
+compat = "0.*"
+
+[dependencies]
+day-bridge = "0.*"
+day-core = "0.*"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_os = "android")'.dependencies]
+day-platform-android = "0.*"
+
+[build-dependencies]
+day-build = "0.*"
+
+[workspace]
+
+[package.metadata.day.ios]
+frameworks = ["BackgroundTasks"]
+platform = "13.0"
+
+[package.metadata.day.android]
+gradle-dependencies = ["androidx.work:work-runtime:2.10.1"]
+java = ["platform/android"]
+permissions = ["android.permission.RECEIVE_BOOT_COMPLETED", "android.permission.ACCESS_NETWORK_STATE", "android.permission.WAKE_LOCK"]
