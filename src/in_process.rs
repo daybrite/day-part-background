@@ -13,6 +13,13 @@ use crate::{Error, Schedule};
 
 /// Replace an in-process schedule. Network/charging constraints are unsupported and rejected.
 /// Up to 64 worker threads may be active, including cancelled handlers that have not returned.
+///
+/// # Errors
+///
+/// Returns [`Error::Unsupported`] where in-process work is unavailable or the request has a
+/// network or charging constraint, [`Error::InvalidRequest`] for a malformed request or an
+/// unregistered task, and [`Error::Platform`] when the worker limit is reached or a worker
+/// cannot start.
 pub fn schedule(request: &Schedule) -> Result<(), Error> {
     if !crate::capabilities().in_process {
         return Err(Error::Unsupported);
@@ -31,6 +38,10 @@ pub fn schedule(request: &Schedule) -> Result<(), Error> {
 
 /// Remove an in-process schedule and signal cancellation to its active handler.
 /// Does not affect persistent OS work with the same identifier. Missing schedules are a no-op.
+///
+/// # Errors
+///
+/// Returns [`Error::Unsupported`] where in-process work is unavailable.
 pub fn cancel(identifier: &str) -> Result<(), Error> {
     #[cfg(target_arch = "wasm32")]
     let _ = identifier;
@@ -64,18 +75,24 @@ mod runtime {
     }
     impl Job {
         fn stop(&self) {
-            let _guard = self.gate.lock().unwrap_or_else(|e| e.into_inner());
+            let _guard = self
+                .gate
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.cancelled.store(true, Ordering::Release);
             self.wake.notify_all();
         }
 
         /// False means cancelled; true means the minimum delay elapsed.
         fn wait(&self, delay: Duration) -> bool {
-            let guard = self.gate.lock().unwrap_or_else(|e| e.into_inner());
+            let guard = self
+                .gate
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let _result = self
                 .wake
-                .wait_timeout_while(guard, delay, |_| !self.cancelled.load(Ordering::Acquire))
-                .unwrap_or_else(|e| e.into_inner());
+                .wait_timeout_while(guard, delay, |()| !self.cancelled.load(Ordering::Acquire))
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             !self.cancelled.load(Ordering::Acquire)
         }
     }
@@ -116,7 +133,10 @@ mod runtime {
             request: Schedule,
             handler: impl Fn(Context) -> Outcome + Send + 'static,
         ) -> Result<(), Error> {
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if state.workers >= MAX_WORKERS {
                 return Err(Error::Platform("in-process worker limit reached".into()));
             }
@@ -128,7 +148,12 @@ mod runtime {
                 .name("day-background-local".into())
                 .spawn(move || {
                     // Scheduling installs this job and cancels its predecessor before execution.
-                    drop(scheduler.state.lock().unwrap_or_else(|e| e.into_inner()));
+                    drop(
+                        scheduler
+                            .state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner),
+                    );
                     let mut delay = Duration::from_secs(request.delay_secs);
                     while worker_job.wait(delay) {
                         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -143,7 +168,10 @@ mod runtime {
                             None => break,
                         }
                     }
-                    let mut state = scheduler.state.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut state = scheduler
+                        .state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     state.workers -= 1;
                     if state
                         .jobs
@@ -165,7 +193,7 @@ mod runtime {
             if let Some(job) = self
                 .state
                 .lock()
-                .unwrap_or_else(|e| e.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .jobs
                 .remove(identifier)
             {

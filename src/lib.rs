@@ -165,6 +165,12 @@ pub const fn supported() -> bool {
 /// Persist an OS schedule; never falls back to in-process scheduling.
 /// Replace a pending schedule for this identifier. An already executing handler receives
 /// cancellation on Android; callers must make writes idempotent across retries and restarts.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidRequest`] for a malformed request or an unregistered task,
+/// [`Error::Unsupported`] where the OS has no persistent scheduling, and
+/// [`Error::Platform`] when the OS rejects the schedule.
 pub async fn schedule(request: &Schedule) -> Result<(), Error> {
     request.validate()?;
     if !supported() {
@@ -177,6 +183,12 @@ pub async fn schedule(request: &Schedule) -> Result<(), Error> {
         .map_err(bridge_error)
         .and_then(answer)
 }
+/// Cancel the persistent OS schedule for `identifier`.
+///
+/// # Errors
+///
+/// Returns [`Error::Unsupported`] where the OS has no persistent scheduling, and
+/// [`Error::Platform`] when the OS reports a failure.
 pub async fn cancel(identifier: &str) -> Result<(), Error> {
     if !supported() {
         return Err(Error::Unsupported);
@@ -188,6 +200,10 @@ pub async fn cancel(identifier: &str) -> Result<(), Error> {
 }
 
 /// Run a registered handler now, for foreground diagnostics. This does not exercise OS scheduling.
+///
+/// # Errors
+///
+/// Returns [`Error::InvalidRequest`] when no handler is registered for `identifier`.
 pub fn run_now(identifier: &str, payload: String) -> Result<Outcome, Error> {
     let task = definitions()
         .iter()
@@ -234,8 +250,10 @@ fn start() -> Result<(), Error> {
                 if let day_bridge::Item::Value(json) = item {
                     match serde_json::from_str::<Delivery>(&json) {
                         Ok(Delivery::Cancel { run }) => {
-                            if let Some(cancelled) =
-                                runs().lock().unwrap_or_else(|e| e.into_inner()).get(&run)
+                            if let Some(cancelled) = runs()
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .get(&run)
                             {
                                 cancelled.store(true, Ordering::Release);
                             }
@@ -244,7 +262,7 @@ fn start() -> Result<(), Error> {
                             run,
                             identifier,
                             payload,
-                        }) => dispatch(run, identifier, payload),
+                        }) => dispatch(run, &identifier, payload),
                         Err(_) => {}
                     }
                 }
@@ -261,7 +279,7 @@ fn start() -> Result<(), Error> {
         .clone()
 }
 
-fn dispatch(run: i64, identifier: String, payload: String) {
+fn dispatch(run: i64, identifier: &str, payload: String) {
     let Some(task) = definitions()
         .iter()
         .find(|task| task.identifier == identifier)
@@ -271,7 +289,9 @@ fn dispatch(run: i64, identifier: String, payload: String) {
     };
     let cancelled = Arc::new(AtomicBool::new(false));
     {
-        let mut active = runs().lock().unwrap_or_else(|e| e.into_inner());
+        let mut active = runs()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if active.contains_key(&run) {
             return;
         }
@@ -287,7 +307,7 @@ fn dispatch(run: i64, identifier: String, payload: String) {
                     .unwrap_or(Outcome::Failed);
                 runs()
                     .lock()
-                    .unwrap_or_else(|e| e.into_inner())
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .remove(&run);
                 let value = match result {
                     Outcome::Success => "success",
@@ -299,7 +319,7 @@ fn dispatch(run: i64, identifier: String, payload: String) {
         if spawned.is_err() {
             runs()
                 .lock()
-                .unwrap_or_else(|e| e.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&run);
             let _ = native::finish(run, "failed");
         }
@@ -320,6 +340,10 @@ static SERVICE: day_core::services::Service = day_core::services::Service {
     },
 };
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "passed to `map_err`, which hands the error over by value"
+)]
 fn bridge_error(e: day_bridge::Error) -> Error {
     if matches!(e, day_bridge::Error::Unsupported) {
         Error::Unsupported
@@ -339,6 +363,10 @@ fn answer(value: String) -> Result<(), Error> {
 mod tests {
     use super::*;
     register_task!("dev.daybrite.fixture", fixture);
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "`TaskDefinition::run` fixes the handler signature"
+    )]
     fn fixture(context: Context) -> Outcome {
         if context.is_cancelled() {
             Outcome::Retry

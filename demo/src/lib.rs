@@ -7,11 +7,25 @@ day::day_start!(options: res::window_options(), root);
 
 const TASK: &str = "dev.daybrite.background.demo.refresh";
 const COUNT: &str = "background-demo.completed";
+#[cfg_attr(
+    target_arch = "wasm32",
+    expect(dead_code, reason = "no task is registered on the web")
+)]
 static JOURNAL: Mutex<()> = Mutex::new(());
 work::register_task!("dev.daybrite.background.demo.refresh", refresh);
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "`register_task!` fixes the handler signature"
+)]
+#[cfg_attr(
+    target_arch = "wasm32",
+    expect(dead_code, reason = "no task is registered on the web")
+)]
 fn refresh(context: work::Context) -> work::Outcome {
-    let _lock = JOURNAL.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = JOURNAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if context.is_cancelled() {
         return work::Outcome::Retry;
     }
