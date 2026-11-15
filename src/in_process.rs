@@ -65,7 +65,7 @@ mod runtime {
     use std::time::Duration;
 
     const MAX_WORKERS: usize = 64;
-    const RETRY_DELAY: Duration = Duration::from_secs(900);
+    const RETRY_DELAY: Duration = Duration::from_mins(15);
 
     #[derive(Default)]
     struct Job {
@@ -309,7 +309,7 @@ mod runtime {
             // Simulate occupied workers; no need to allocate 64 real threads.
             scheduler.state.lock().unwrap().workers = MAX_WORKERS;
             let result = scheduler.spawn(Schedule::new("limit-fixture"), |_| Outcome::Success);
-            assert!(matches!(result, Err(Error::Platform(_))));
+            std::assert_matches!(result, Err(Error::Platform(_)));
             assert!(scheduler.state.lock().unwrap().jobs.is_empty());
         }
 
@@ -318,7 +318,7 @@ mod runtime {
             assert_eq!(next_delay(Outcome::Success, None), None);
             assert_eq!(
                 next_delay(Outcome::Success, Some(1800)),
-                Some(Duration::from_secs(1800))
+                Some(Duration::from_mins(30))
             );
             assert_eq!(next_delay(Outcome::Retry, None), Some(RETRY_DELAY));
             assert_eq!(next_delay(Outcome::Failed, Some(1800)), None);
