@@ -15,7 +15,7 @@ use std::sync::{
 
 pub mod in_process;
 mod native;
-pub use day_core::linkme;
+pub use day_process::linkme;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -56,7 +56,7 @@ pub struct TaskDefinition {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[linkme::distributed_slice]
-#[linkme(crate = day_core::linkme)]
+#[linkme(crate = day_process::linkme)]
 pub static TASKS: [TaskDefinition];
 
 /// Register a stable identifier and a function that does not require UI state.
@@ -331,9 +331,9 @@ fn dispatch(run: i64, identifier: &str, payload: String) {
 }
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
-#[day_core::linkme::distributed_slice(day_core::services::SERVICES)]
-#[linkme(crate = day_core::linkme)]
-static SERVICE: day_core::services::Service = day_core::services::Service {
+#[day_process::linkme::distributed_slice(day_process::services::SERVICES)]
+#[linkme(crate = day_process::linkme)]
+static SERVICE: day_process::services::Service = day_process::services::Service {
     name: "background",
     initialize: || {
         let _ = start();
